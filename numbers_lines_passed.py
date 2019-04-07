@@ -2,8 +2,8 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
-import math
 import random
+import math as math
 from keras.models import load_model
 from keras.models import model_from_json
 
@@ -77,6 +77,30 @@ def find_boxes(digit_frame):
         bboxes.append([x, y, w, h])
             
     return bboxes
+
+def additional_cleaning(digit_frame):
+    img = cv2.cvtColor(digit_frame.copy(), cv2.COLOR_RGB2GRAY) 
+    binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    (_, contours, _) = cv2.findContours(binary.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    if(len(contours) == 0):
+        return digit_frame
+    
+    
+    bboxes = []
+
+    for c in contours:
+        (x, y, w, h) = cv2.boundingRect(c)
+        bboxes.append([x, y, w, h])
+
+   
+    (x, y, w, h) = bboxes[0]
+
+    refurbish_img = np.uint8(np.zeros((28,28,3)))
+    position_x = int((28 - w)/2)
+    position_y = int((28 - h)/2)            
+    refurbish_img[position_y:position_y + h,position_x:position_x + w,:] = digit_frame[y:y+h,x:x+w, :]
+    return refurbish_img
 
 
 #keep only one color channel
@@ -160,14 +184,21 @@ class LineSegment:
         y2 = self.point_end[1]
 
         
-
         if(x1 <= x <= x2 and y2 - EPSILON_Y <= y <= y1 + EPSILON_Y):
             return True
-        # if(x in x_range): #and y in y_range):
-        #     return True
 
         return False
 
+    def pointIsBelowLine(self, point):
+        x = point[0]
+        y = point[1]
+
+        y_made = self.m * x + self.c
+
+        if(y < y_made - EPSILON_Y):
+            return True
+
+        return False
     def drawLine(self, cv2, frame):
         cv2.line(frame, self.point_begin, self.point_end, color = (0, 255, 0), thickness = 3)
         #cv2.rectangle(frame, self.point_begin- EPSILON, self.point_end - EPSILON, color = (0, 255,0))
@@ -186,7 +217,7 @@ def eucledianDistance(a, b):
     return np.linalg.norm([x1, x2])
 
 
-def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersections):
+def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersections, vid):
     """Returns tuple (boolean ifIntersect, int prediction) \n
         ifIntersect - returns True if bbox intersects line \n
         prediction - return predicted number found in the box"""
@@ -201,33 +232,49 @@ def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersecti
 
     centroid = (centroid_x, centroid_y)
     d = lineSegment.getShortestDistance(centroid)
+    y = lineSegment.m * centroid_x + lineSegment.c
     if(d < EPSILON_D and (found_index not in intersections.keys())):
         #keep intersection place
         #print(Intersection found (wrong one)!')
-        if(lineSegment.pointIsClose(centroid) == True):
+        if(lineSegment.pointIsClose(centroid) and lineSegment.pointIsBelowLine(centroid)):
 
 
             intersections[found_index] = centroid
             print('Intersection REALLY found!')
 
-            (old_centroid_x, old_centroid_y) = histories[found_index][-1]['centroid']
+            (old_centroid_x, old_centroid_y) = histories[found_index][0]['centroid']
+            #to take old centroid, you need to find time when it happened, and take it from that frame
+            current_time = vid.get(1)
+            old_time = histories[found_index][0]['time'] 
+            vid.set(1, old_time) #set old time   
+            flag, frame = vid.read() #read that frame value
+
             x = old_centroid_x - 14
             y = old_centroid_y - 14
             w = 28
             h = 28
-
-            found_number = frame[y:y + h,x: x + w, :]
-            res = extract_numbers(found_number)
-            res = cv2.cvtColor(res, cv2.COLOR_RGB2GRAY) 
-            res = res / 255
-
             
+            found_number = frame[y:y + h,x: x + w, :]  
+
+            #bring back current time
+            vid.set(1, current_time)
+
+            res = extract_numbers(found_number)
+
+            ####TODO: remove
+            res = additional_cleaning(res)
+            ### TODO End
+            res = cv2.cvtColor(res, cv2.COLOR_RGB2GRAY) 
+           
+            res = res / 255            
             
             prediction = predict(res[np.newaxis,:, :, np.newaxis])
 
-            cv2.imwrite('slika' + str(prediction) +'_' + str(found_index) + '.bmp', found_number)
+            cv2.imwrite(f'slika_{prediction}_{old_time}_{x}_{y}.bmp', found_number)
+
             #sub = sub + prediction
             print(f'Number is: {prediction} and on index {found_index} and found history length {len(histories[found_index])}')
+            print(f'Time when it was found is {old_time}')
 
             
             return (True, prediction)
@@ -274,14 +321,9 @@ def main():
     #ADDITION
     lineSegmentBlue = LineSegment(x1_b, y1_b, x2_b, y2_b)
 
-    #ini # sub = 0
-    # add = 0tialize array of histories
-    #each item is array of pairs of centroid and time (frame_index) when they were found
-    # histories = []
-    
-    # intersections = {}
     intersectionsGreen = {}
     intersectionsBlue = {}
+    
     while vid.isOpened():
         flag, number_frame = vid.read()
 
@@ -308,15 +350,20 @@ def main():
             #a)if it is, append it to it
             found_index = -1 #to check if we found closest centroid in recent history
 
-            #check eucledian for each item in history
+            #TODO: check eucledian for each item in history, and find the closest one
+
             for idx, history_item in enumerate(histories):
-                #take last centroid inserted in history_item
-                (x,y) = history_item[-1]['centroid']
-                if(eucledianDistance((centroid_x, centroid_y), (x, y)) < 15):
-                    histories[idx].append({'centroid' : (centroid_x, centroid_y), 'time' : time})
-                    found_index = idx
-                    
-                    break
+                    #take last centroid inserted in history_item                
+                    (x,y) = history_item[-1]['centroid']
+                    if(eucledianDistance((centroid_x, centroid_y), (x, y)) < 15):
+                        histories[idx].append({'centroid' : (centroid_x, centroid_y), 'time' : time})
+                        found_index = idx                     
+                        break
+
+
+            ###### TODO: end
+
+
 
             #b)if not, create new item in history specially for it
             if(found_index == -1):
@@ -339,41 +386,13 @@ def main():
             #find intersection places from history items that still haven't been in dictionary
 
             
-            (isIntersect, prediction) = findAndPredictNumberOnLine(number_frame, box, found_index, lineSegmentGreen, intersectionsGreen )
+            (isIntersect, prediction) = findAndPredictNumberOnLine(number_frame, box, found_index, lineSegmentGreen, intersectionsGreen, vid )
             if(isIntersect):
                 sub = sub + prediction
 
-            (isIntersect, prediction) = findAndPredictNumberOnLine(number_frame, box, found_index, lineSegmentBlue, intersectionsBlue )
+            (isIntersect, prediction) = findAndPredictNumberOnLine(number_frame, box, found_index, lineSegmentBlue, intersectionsBlue, vid )
             if(isIntersect):
                 add = add + prediction
-            #If history is not so big
-            # if(len(histories[found_index]) <= 10):
-            #     continue
-            # centroid = (centroid_x, centroid_y)
-            # d = lineSegmentGreen.getShortestDistance(centroid)
-            # if(d < EPSILON_D and (found_index not in intersections.keys()) and lineSegmentGreen.pointIsClose(centroid) == True):
-              
-            #     intersections[found_index] = centroid
-            #     print('Intersection REALLY found!')
-
-            #     (old_centroid_x, old_centroid_y) = histories[found_index][-1]['centroid']
-            #     x = old_centroid_x - 14
-            #     y = old_centroid_y - 14
-            #     w = 28
-            #     h = 28
-
-            #     found_number = number_frame[y:y + h,x: x + w, :]
-            #     res = extract_numbers(found_number)
-            #     res = cv2.cvtColor(res, cv2.COLOR_RGB2GRAY) 
-            #     res = res / 255
-
-            #     cv2.imwrite('slika' + str(found_index) + '.bmp', found_number)
-                
-            #     prediction = predict(res[np.newaxis,:, :, np.newaxis])
-            #     sub = sub + prediction
-            #     print(f'Number is: {prediction} and on index {found_index} and found history length {len(histories[found_index])}')
-
-   
 
 
             
@@ -388,18 +407,20 @@ def main():
 
         # NOW:
         # EXTRA) for each item in history, draw polyline of movement, meaning connect the centroid dots
-        for history_item in histories:
+        for idx,history_item in enumerate(histories):
             point_start = history_item[0]['centroid']
 
             R = history_item[0]['R']
             G = history_item[0]['G']
             B = history_item[0]['B']
-            for element in history_item[1:]:
+            for jdx, element in enumerate(history_item[1:]):
                 point_end  = element['centroid']
 
                 
                 cv2.line(number_frame, point_start , point_end, (R, G, B) )
                 point_start = point_end
+
+
 
 
         for key in intersectionsGreen:
