@@ -18,7 +18,7 @@ with open('res.txt') as file:
 correct = 0
 student = []
 student_results = []
-with open("out.txt") as file:
+with open("rezultat_dusan.txt") as file:
     data = file.read()
     lines = data.split('\n')
     for id, line in enumerate(lines):
@@ -36,6 +36,6 @@ for index, res_col in enumerate(res):
     diff += abs(res_col - student_results[index])
 percentage = 100 - abs(diff/sum(res))*100
 
-print student
-print 'Procenat tacnosti:\t'+str(percentage)
-print 'Ukupno:\t'+str(n)
+print(student)
+print('Procenat tacnosti:\t'+str(percentage))
+print('Ukupno:\t'+str(n))

@@ -18,7 +18,6 @@ def predict(image):
 
 def green_mask(frame):
     dummy_frame = frame.copy()
-    
     hsv = cv2.cvtColor(dummy_frame, cv2.COLOR_BGR2HSV)
     
     lower_green = (40,40,40)
@@ -32,8 +31,11 @@ def green_mask(frame):
 def red_mask(frame):
     dummy_frame = frame.copy()
     
-    hsv = cv2.cvtColor(dummy_frame, cv2.COLOR_BGR2HSV)
     
+    hsv = cv2.cvtColor(dummy_frame, cv2.COLOR_BGR2HSV)
+   
+
+
     lower_red = (10,50,20)
     upper_red = (179, 255, 255)
     
@@ -41,6 +43,38 @@ def red_mask(frame):
     
     return 255 - mask
 
+
+def parted_hough_line_unifier(lines):
+    """Finds whole line consisted of parts"""
+    #print(lines)
+    point_begin = []
+    point_end = []
+    point_begin.append(lines[0][0][0])
+    point_begin.append(lines[0][0][1])
+    point_end.append(lines[0][0][2])
+    point_end.append(lines[0][0][3])
+    
+    
+    for i in range(lines.shape[0]):
+        for x1,y1,x2,y2 in lines[i]:
+            print(x1, y1, x2,y2)
+            
+            
+    for line in lines[1:]:
+        for x1,y1,x2,y2 in lines[i]:
+            if(x1 < point_begin[0] ):
+        #check if point_begin is legit, if not change it
+                point_begin[0] = x1
+                point_begin[1] = y1
+            
+        #check if point_end is legit, if not change it
+            if(x2 > point_end[0]):
+                point_end[0] = x2
+                point_end[1] = y2
+
+            
+    return (point_begin[0], point_begin[1], point_end[0], point_end[1])
+        
 
 #cleans numbers from possible red or green color
 #and convert to grayscale if wanter
@@ -70,6 +104,7 @@ def find_boxes(digit_frame):
                 
         #get bounding box 28x28 from countour        
         (x, y, w, h) = cv2.boundingRect(c)
+        
         x = x - int((28 - w)/2)
         y = y - int((28 - h)/2)
         w = 28
@@ -124,14 +159,14 @@ def hough_lines_return(frame):
     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold = 100, maxLineGap = 10 )
 
     
-    (x1,y1,x2,y2) = lines[0,0,:]
+    (x1,y1,x2,y2) = parted_hough_line_unifier(lines)  #lines[0,0,:]
     
     return (x1,y1,x2,y2)
 
 BLUE = 0
 GREEN = 1
 EPSILON_Y = 5
-EPSILON_D = 15
+EPSILON_D = 20
 
 class LineSegment:
     def __init__(self, x1,y1,x2,y2):
@@ -199,8 +234,8 @@ class LineSegment:
             return True
 
         return False
-    def drawLine(self, cv2, frame):
-        cv2.line(frame, self.point_begin, self.point_end, color = (0, 255, 0), thickness = 3)
+    def drawLine(self, cv2, frame, color_chosen = (0,255,0)):
+        cv2.line(frame, self.point_begin, self.point_end, color = color_chosen , thickness = 3)
         #cv2.rectangle(frame, self.point_begin- EPSILON, self.point_end - EPSILON, color = (0, 255,0))
         x1 = self.point_begin[0]
         y1 = self.point_begin[1]
@@ -234,9 +269,7 @@ def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersecti
     d = lineSegment.getShortestDistance(centroid)
     y = lineSegment.m * centroid_x + lineSegment.c
     if(d < EPSILON_D and (found_index not in intersections.keys())):
-        #keep intersection place
-        #print(Intersection found (wrong one)!')
-        if(lineSegment.pointIsClose(centroid) and lineSegment.pointIsBelowLine(centroid)):
+        if(lineSegment.pointIsClose(centroid)):
 
 
             intersections[found_index] = centroid
@@ -254,11 +287,13 @@ def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersecti
             w = 28
             h = 28
             
+            
             found_number = frame[y:y + h,x: x + w, :]  
-
             #bring back current time
             vid.set(1, current_time)
 
+            if(found_number.shape[0] == 0 or found_number.shape[1] == 0):
+                return (False, -1)
             res = extract_numbers(found_number)
 
             ####TODO: remove
@@ -286,7 +321,7 @@ def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersecti
 
 
 
-def main():
+def main(video_number):
 
     # histories = []
     # intersections = {}
@@ -300,7 +335,7 @@ def main():
     
     global histories
 
-    vid = cv2.VideoCapture('video-0.avi')
+    vid = cv2.VideoCapture(f'video-{video_number}.avi')
 
     flag, number_frame = vid.read()
 
@@ -385,7 +420,8 @@ def main():
             
             #find intersection places from history items that still haven't been in dictionary
 
-            
+
+           
             (isIntersect, prediction) = findAndPredictNumberOnLine(number_frame, box, found_index, lineSegmentGreen, intersectionsGreen, vid )
             if(isIntersect):
                 sub = sub + prediction
@@ -443,7 +479,7 @@ def main():
 
 
         lineSegmentGreen.drawLine(cv2, number_frame)
-        
+        lineSegmentBlue.drawLine(cv2, number_frame, (255,0,0))
 
         for box in bboxes:
             (x,y,w,h) = box
@@ -453,19 +489,24 @@ def main():
             
             cv2.rectangle(number_frame, (x,y), (x + w, y + h),color = chosen_color)
             
-        cv2.imshow('video-0.avi', number_frame)
+        cv2.imshow('Video', number_frame)
 
 
         if cv2.waitKey(1) & 0xFF == 27 or flag==False:
             break
 
-    text_file = open("rezultat_dusan.txt", "w") 
-    text_file.write("Total: %d" % total)
+    text_file = open("rezultat_dusan.txt", "a") 
+    text_file.write(f'video-{video_number}.avi\t{total}\n')
     text_file.close()
 
     cv2.destroyAllWindows()
     vid.release()     
 
+    #return total
 
-
-main()
+# text_file = open("rezultat_dusan.txt", "a") 
+# text_file.write(f'RA 196/2015 Dusan Svilarkovic\n')
+# text_file.write(f'file\tsum\n')
+# text_file.close()
+#for i in range(0,10):
+main(9)
