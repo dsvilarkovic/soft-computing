@@ -62,13 +62,13 @@ def parted_hough_line_unifier(lines):
             
     for line in lines[1:]:
         for x1,y1,x2,y2 in lines[i]:
-            if(x1 + 50 < point_begin[0] ):
+            if(x1 < point_begin[0] ):
         #check if point_begin is legit, if not change it
                 point_begin[0] = x1
                 point_begin[1] = y1
             
         #check if point_end is legit, if not change it
-            if(x2 - 50 > point_end[0]):
+            if(x2 > point_end[0]):
                 point_end[0] = x2
                 point_end[1] = y2
 
@@ -390,6 +390,7 @@ def main(video_number):
             for idx, history_item in enumerate(histories):
                     #take last centroid inserted in history_item                
                     (x,y) = history_item[-1]['centroid']
+                    last_time_found = history_item[-1]['time']
                     if(eucledianDistance((centroid_x, centroid_y), (x, y)) < 15):
                         histories[idx].append({'centroid' : (centroid_x, centroid_y), 'time' : time})
                         found_index = idx                     
