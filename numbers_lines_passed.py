@@ -62,13 +62,13 @@ def parted_hough_line_unifier(lines):
             
     for line in lines[1:]:
         for x1,y1,x2,y2 in lines[i]:
-            if(x1 < point_begin[0] ):
+            if(x1 + 50 < point_begin[0] ):
         #check if point_begin is legit, if not change it
                 point_begin[0] = x1
                 point_begin[1] = y1
             
         #check if point_end is legit, if not change it
-            if(x2 > point_end[0]):
+            if(x2 - 50 > point_end[0]):
                 point_end[0] = x2
                 point_end[1] = y2
 
@@ -305,7 +305,7 @@ def findAndPredictNumberOnLine(frame, bbox, found_index, lineSegment, intersecti
             
             prediction = predict(res[np.newaxis,:, :, np.newaxis])
 
-            cv2.imwrite(f'slika_{prediction}_{old_time}_{x}_{y}.bmp', found_number)
+            cv2.imwrite(f'slika_{current_time}_{old_time}_{prediction}.bmp', found_number)
 
             #sub = sub + prediction
             print(f'Number is: {prediction} and on index {found_index} and found history length {len(histories[found_index])}')
@@ -509,4 +509,6 @@ def main(video_number):
 # text_file.write(f'file\tsum\n')
 # text_file.close()
 #for i in range(0,10):
-main(9)
+import sys as sys
+
+main(int(sys.argv[1]))
